@@ -2,74 +2,111 @@ import React from 'react';
 import ReactDOM from 'react-dom';
 import './index.css';
 
-// class Square extends React.Component {
-// constructor() {
-//   super();
-//   this.state = {
-//     value: null,
-//   };
-// }
-// render() {
-let Square = (props) => //{
-  // return (
+// ホスト
+let g_host = "https://testphpserver1.herokuapp.com/"
+if (window.location.search.match(/.*local.*/)) {
+  // ローカルモードならローカルホスト
+  g_host = "http://localhost:8080/public/";
+}
+
+let g_userId = null;
+let g_response = null;
+let g_width = -1;
+let g_height = -1;
+
+let Square = (props) =>
   <button className="square" onClick={() => props.onClick()}>
     {props.value}
   </button>
-//   );
-// }
-// }
 
 class Board extends React.Component {
   constructor() {
     super();
     this.state = {
-      squares: Array(9).fill(null),
-      xIsNext: true,
+      squares: [],
     };
-  }
-  handleClick(i) {
-    const squares = this.state.squares.slice();
-    if (calculateWinner(squares) || squares[i]) {
-      return;
-    }
-    squares[i] = this.state.xIsNext ? 'X' : 'O';
-    this.setState({
-      squares: squares,
-      xIsNext: !this.state.xIsNext,
-    });
+
+    setTimeout(() => this.update(), 1000);
   }
 
-  renderSquare(i) {
-    return <Square value={this.state.squares[i]} onClick={() => this.handleClick(i)} />;
+  async update() {
+    let response = await fetch(g_host + "gomoku/")
+    g_response = await response.json();
+
+    // マスの範囲取得
+    for (let i in g_response.master) {
+      switch (g_response.master[i].key) {
+        case "WIDTH":
+          g_width = Number(g_response.master[i].value);
+          break;
+        case "HEIGHT":
+          g_height = Number(g_response.master[i].value);
+          break;
+        default:
+          break;
+      }
+    }
+
+    let squares = Array.from({length: g_height}, e => Array.from({length: g_width}, e => null));
+    for (let y = 0; y < g_height; y++) {
+      for (let x = 0; x < g_width; x++) {
+        let cell = g_response.cell.find(e => e.x === x.toString() && e.y === y.toString())
+        if (cell != null) {
+          if (cell.user_id === g_userId) {
+            console.log(cell)
+            squares[y][x] = '◎';
+          } else {
+            squares[y][x] = '●';
+          }
+        }
+      }
+    }
+            console.log(squares);
+
+    this.setState({
+      squares: squares,
+    });
+
+    // 1秒後に再度通信
+    setTimeout(() => this.update(), 1000);
+  }
+
+  async handleClick(x, y) {
+    await fetch(g_host + "gomoku/cell",
+      {
+        method: "post",
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          x: x,
+          y: y,
+          user_id: g_userId,
+        })
+      }
+    );
+  }
+
+  renderSquare(x, y) {
+    return <Square key={y * g_width + x} value={this.state.squares[y][x]} onClick={() => this.handleClick(x, y)} />;
   }
 
   render() {
-    const winner = calculateWinner(this.state.squares);
-    let status;
-    if (winner) {
-      status = 'Winner: ' + winner;
-    } else {
-      status = 'Next player: ' + (this.state.xIsNext ? 'X' : 'O');
+    let lines = [];
+    for (let y = 0; y < g_height; y++) {
+      let doms = []
+      for (let x = 0; x < g_width; x++) {
+        doms.push(this.renderSquare(x, y));
+      }
+      lines.push(<div key={y} className="board-row">
+        {doms}
+      </div>);
     }
 
     return (
       <div>
-        <div className="status">{status}</div>
-        <div className="board-row">
-          {this.renderSquare(0)}
-          {this.renderSquare(1)}
-          {this.renderSquare(2)}
-        </div>
-        <div className="board-row">
-          {this.renderSquare(3)}
-          {this.renderSquare(4)}
-          {this.renderSquare(5)}
-        </div>
-        <div className="board-row">
-          {this.renderSquare(6)}
-          {this.renderSquare(7)}
-          {this.renderSquare(8)}
-        </div>
+        {lines}
       </div>
     );
   }
@@ -83,7 +120,6 @@ class Game extends React.Component {
           <Board />
         </div>
         <div className="game-info">
-          <div>{/* status */}</div>
           <ol>{/* TODO */}</ol>
         </div>
       </div>
@@ -92,28 +128,21 @@ class Game extends React.Component {
 }
 
 // ========================================
+async function init() {
+  g_userId = window.localStorage.getItem("GOMOKU/USER_ID");
+  if (g_userId === null) {
+    // 新規ユーザー登録
+    let response = await fetch(g_host + "gomoku/user", { method: "post" });
+    let obj = await response.json();
+    g_userId = obj.user_id;
 
-ReactDOM.render(
-  <Game />,
-  document.getElementById('root')
-);
-
-function calculateWinner(squares) {
-  const lines = [
-    [0, 1, 2],
-    [3, 4, 5],
-    [6, 7, 8],
-    [0, 3, 6],
-    [1, 4, 7],
-    [2, 5, 8],
-    [0, 4, 8],
-    [2, 4, 6],
-  ];
-  for (let i = 0; i < lines.length; i++) {
-    const [a, b, c] = lines[i];
-    if (squares[a] && squares[a] === squares[b] && squares[a] === squares[c]) {
-      return squares[a];
-    }
+    window.localStorage.setItem("GOMOKU/USER_ID", g_userId);
   }
-  return null;
-};
+
+  ReactDOM.render(
+    <Game />,
+    document.getElementById('root')
+  );
+}
+init();
+
